@@ -3,7 +3,7 @@
 [![GitHub](https://img.shields.io/badge/GitHub-ssh--remote--control-blue?logo=github)](https://github.com/runningZ1/ssh-remote-control)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**核心功能**：配置SSH免密连接，之后直接用 `ssh` 命令操作远程服务器。
+**核心功能**：配置SSH免密连接，AI agent 通过智能别名解析使用原生SSH命令操作远程服务器。
 
 **GitHub**: https://github.com/runningZ1/ssh-remote-control
 
@@ -29,7 +29,19 @@ python sshctrl.py server add 38.76.206.12 root mypassword myserver
 python sshctrl.py server add connect.nmb2.seetacloud.com root mypassword seetacloud_20605 --port 20605
 ```
 
-### 3. 日常操作（直接用SSH命令）
+### 3. 智能连接（AI agent 默认入口）
+
+```bash
+# 输入 host，自动在 ~/.ssh/config 里反查别名
+python sshctrl.py connect <host>
+
+# 输出:
+#   USING_ALIAS=jxyg-198          ← 成功，拿到别名
+#   AUTH_FAILED:...               ← 别名存在但免密失败
+#   NO_ALIAS:...                  ← 没找到，需要 server add
+```
+
+### 4. 日常操作（直接用SSH命令）
 
 ```bash
 # 执行命令

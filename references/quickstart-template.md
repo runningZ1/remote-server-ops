@@ -104,3 +104,33 @@ ssh myserver "whoami"
 - **SSH保活**：防止空闲超时（60秒间隔，3次重试）
 - **tmux**：在服务器上安装以在断开连接时保持会话持久性
 - 对于超过2分钟的任何操作使用tmux
+
+## 长时间任务：git clone / docker pull / docker build
+
+这类任务耗时可能超过10分钟，**必须在 tmux 里运行**，否则网络抖动会导致任务中断。
+
+```bash
+# 连接服务器后先进 tmux
+ssh {{ALIAS}}
+tmux new -s work
+
+# 在 tmux 里正常执行
+git clone https://github.com/xxx/yyy.git
+docker pull some-image:latest
+docker build -t myapp .
+
+# 需要暂时离开时：Ctrl+B 然后 D（任务继续在后台跑）
+# 重新进入查看进度
+ssh {{ALIAS}}
+tmux attach -t work
+```
+
+| 操作 | 命令 |
+|------|------|
+| 新建 session | `tmux new -s work` |
+| 暂时离开（任务继续） | `Ctrl+B` 然后 `D` |
+| 重新进入 | `tmux attach -t work` |
+| 查看所有 session | `tmux ls` |
+| 关闭 session | `tmux kill-session -t work` |
+
+**原则：只要任务预计超过 2 分钟，就在 tmux 里跑。**
