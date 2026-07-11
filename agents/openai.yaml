@@ -1,0 +1,4 @@
+interface:
+  display_name: "SSH Remote Control"
+  short_description: "Resolve SSH aliases and repair remote access"
+  default_prompt: "Use $ssh-remote-control to resolve the server alias, diagnose SSH/SFTP access, and repair remote connectivity safely."
