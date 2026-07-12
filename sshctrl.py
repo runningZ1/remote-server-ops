@@ -250,7 +250,12 @@ def cmd_server_add(args):
     port = args.port
     username = args.username
     password = args.password
-    alias = args.alias or host.replace('.', '_').replace('-', '_')
+    alias = args.alias.strip()
+
+    if not alias:
+        print("✗ 别名不能为空。别名必须由用户显式指定（项目名/云厂商名优先，实在没有再用IP），")
+        print("  不要自动用IP拼一个——这一步不能替用户做主，先问清楚再重跑。")
+        sys.exit(1)
 
     if not validate_host(host):
         print(f"✗ 无效的主机地址: {host}")
@@ -1003,7 +1008,7 @@ def main():
     add_parser.add_argument('host', help='服务器主机（IP或域名）')
     add_parser.add_argument('username', help='用户名')
     add_parser.add_argument('password', help='密码')
-    add_parser.add_argument('alias', nargs='?', help='SSH别名（可选）')
+    add_parser.add_argument('alias', help='SSH别名（必填，须先问用户：项目名/云厂商名优先，IP兜底）')
     add_parser.add_argument('--port', type=int, default=22, help='SSH端口（默认22）')
 
     server_subparsers.add_parser('list', help='列出所有已配置的服务器')

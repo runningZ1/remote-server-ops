@@ -35,6 +35,8 @@ scp local_file.txt <alias>:/remote/path/
 
 5. Before changing SSH server configuration, back it up, run `sshd -t`, reload/restart SSH, and verify from a new connection before closing any working session.
 
+6. Never invent an alias for a brand-new server. `server add`'s `alias` argument is required precisely so this cannot be skipped silently. Ask the user what they want to call it before running `server add` — do not default to an IP-derived name on your own judgment. See "New Server Onboarding" for the question to ask and the fallback order.
+
 ## Standard Workflow
 
 ### Existing Server
@@ -56,8 +58,20 @@ Handle outputs:
 Use this once when the user provides host, username, password, and optional port:
 
 ```bash
-python sshctrl.py server add <host> <username> <password> [alias] [--port <port>]
+python sshctrl.py server add <host> <username> <password> <alias> [--port <port>]
 ```
+
+`alias` is a required argument, and that is deliberate: do not pick one yourself and run
+`server add` before asking. Before the first `server add` for a server that has no
+existing alias, ask the user what they want to call it. Suggest, in order:
+
+1. The project or app this server hosts (e.g. `payments-api`, `blog-prod`)
+2. The cloud vendor plus a short qualifier (e.g. `aliyun-hk`, `vultr-tokyo`)
+3. Only if the user has no preference for either: the IP address itself
+
+Do not silently derive an alias from the IP (e.g. `156_239_227_141`) as a default —
+that used to be the tool's own fallback and produces aliases nobody can recognize later
+when they have several servers configured. Ask, then pass whatever the user picks.
 
 The command tests password SSH, generates or reuses a key, uploads the public key, writes `~/.ssh/config`, and verifies key login.
 
@@ -88,8 +102,8 @@ python sshctrl.py find <host-or-fragment>
 # Resolve alias and verify non-interactive key auth
 python sshctrl.py connect <host-or-fragment>
 
-# Add a new server
-python sshctrl.py server add <host> <username> <password> [alias] [--port <port>]
+# Add a new server (alias is required — ask the user first, see New Server Onboarding)
+python sshctrl.py server add <host> <username> <password> <alias> [--port <port>]
 
 # List or remove configured servers
 python sshctrl.py server list
