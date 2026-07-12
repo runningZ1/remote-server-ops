@@ -61,6 +61,13 @@ python sshctrl.py server add <host> <username> <password> [alias] [--port <port>
 
 The command tests password SSH, generates or reuses a key, uploads the public key, writes `~/.ssh/config`, and verifies key login.
 
+The password is a plain positional CLI argument (visible in shell history and process
+listings for the duration of the call). This is an accepted tradeoff for local,
+interactive onboarding of a single server — it is the one place in this skill's workflow
+where a password legitimately appears on the command line. It must not be reused as a
+pattern for daily operations; rule 3 (avoid `sshpass`/password automation) applies to
+everything after onboarding.
+
 ### Daily Remote Work
 
 ```bash

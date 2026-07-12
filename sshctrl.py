@@ -542,7 +542,13 @@ def cmd_server_repair_pubkey(args):
         _upsert_remote_sshd_config(
             ssh, "AuthorizedKeysFile", ".ssh/authorized_keys .ssh/authorized_keys2"
         )
-        _upsert_remote_sshd_config(ssh, "PermitRootLogin", "prohibit-password")
+        if username == "root":
+            # PermitRootLogin 必须至少允许 prohibit-password 才能让 root
+            # 走通公钥认证；这一步会附带关闭 root 的密码登录，明确告知用户，
+            # 避免变成又一次"配置被静默改动"排查（2026-07-11 复盘教训）。
+            _upsert_remote_sshd_config(ssh, "PermitRootLogin", "prohibit-password")
+            print("   ⚠ 已将 PermitRootLogin 设为 prohibit-password：")
+            print("     root 之后只能用密钥登录，密码登录 root 将不再可用。")
         print("   ✓ 配置已更新")
 
         print("\n3️⃣ 语法检查并重载 sshd ...")
