@@ -38,9 +38,68 @@ description: SSH远控技能 - 配置SSH免密连接后，使用原生SSH命令�
 
 ---
 
+## ⚠️ 配置前必须检查（重要）
+
+**在执行 `server add` 之前，必须先检查服务器是否已配置！**
+
+### 为什么要先检查
+
+已配置的服务器会优先使用密钥认证，导致：
+1. 密码认证失败（即使密码正确）
+2. `sshctrl.py server add` 报错"认证失败"
+3. paramiko 密码连接失败
+
+### 检查步骤
+
+```bash
+# 1. 检查是否已有该服务器的配置
+cat ~/.ssh/config | grep -B 1 "HostName <IP>"
+
+# 2. 如果找到配置，会显示类似：
+# Host <别名>
+#     HostName <IP>
+
+# 3. 测试已存在的别名
+ssh <别名> "whoami && hostname"
+
+# 4. 如果连接成功，直接使用该别名，无需重新配置
+```
+
+### 快速检查命令
+
+```bash
+# 一键检查并测试（替换 <IP> 为实际IP）
+alias=$(cat ~/.ssh/config | grep -B 1 "HostName <IP>" | grep "^Host " | awk '{print $2}') && \
+if [ -n "$alias" ]; then \
+  echo "找到别名: $alias" && \
+  ssh -o ConnectTimeout=10 "$alias" "echo '✓ 连接成功'" && \
+  echo "可直接使用: ssh $alias \"命令\""; \
+else \
+  echo "未找到配置，可以执行 server add"; \
+fi
+```
+
+### 示例：检查 198.44.177.126
+
+```bash
+$ cat ~/.ssh/config | grep -B 1 "HostName 198.44.177.126"
+Host jxyg-198
+    HostName 198.44.177.126
+
+$ ssh jxyg-198 "whoami && hostname"
+root
+ser117937227725
+
+# ✓ 服务器已配置，别名是 jxyg-198，直接使用即可
+```
+
+---
+
 ## 初始配置SOP
 
-**前提**：用户提供 host（IP或域名）、用户名、密码（可选端口）
+**前提**：
+1. 用户提供 host（IP或域名）、用户名、密码（可选端口）
+2. **已确认该服务器未配置**（参考上面的检查步骤）
 
 **执行**：
 ```bash
@@ -121,6 +180,117 @@ scp <别名>:/remote/path/file.txt ./
 
 **不需要任何脚本，所有操作通过SSH完成。**
 
+### 🔴 三条必须遵守的远程执行规则
+
+这三条都是实战踩出来的，违反后的失败模式都很隐蔽（不报错 / 静默失败 / 误判成功）。
+
+#### 1. 非交互 ssh 一律加 `< /dev/null`
+
+不加时 ssh 会继承当前 stdin 并等待输入，表现为命令卡死到超时。
+
+```bash
+ssh <别名> "命令" < /dev/null
+```
+
+#### 2. 禁止远程嵌套 heredoc —— 会静默失败
+
+```bash
+# ❌ 不写入、不报错、返回 0，最坑的一种失败
+ssh <别名> 'cat >> /root/.ssh/config << "EOF"
+Host xxx
+EOF'
+```
+
+外层 ssh 引号与内层 heredoc 定界符互相干扰，命令被本地 shell 吃掉一部分。
+
+```bash
+# ✅ 短内容用 printf
+ssh <别名> "printf 'line1\nline2\n' >> /path/file" < /dev/null
+
+# ✅ 长内容本地写好再传（推荐）
+cat > /tmp/x.conf << 'EOF'
+...
+EOF
+scp /tmp/x.conf <别名>:/path/
+```
+
+**任何远程写文件操作，写完必须 grep / cat 回读确认。**
+
+#### 3. 长任务后台跑 + 轮询日志
+
+`npm ci && npm run build`、大型解压、镜像拉取等经常超过 2 分钟，直接 ssh 执行会撞工具超时。
+
+```bash
+ssh <别名> "cd /opt/<项目> && nohup bash -c '<长命令>' > /tmp/<项目>-build.log 2>&1 & echo started" < /dev/null
+
+sleep 60
+ssh <别名> "tail -25 /tmp/<项目>-build.log" < /dev/null
+```
+
+#### 补充：偶发 banner exchange 超时
+
+`Connection timed out during banner exchange` 是网络抖动，不是配置问题。`sleep 15-20` 后重试即可，**不要因此去改 SSH 配置**。
+
+---
+
+## GitHub 私有仓库 → 服务器部署
+
+当任务包含「建 GitHub 仓库 + 部署到服务器」时，走 Deploy Key 方案，
+完整流程见 **`references/github-deploy-guide.md`**（含 nginx 配置、更新脚本、检查清单）。
+
+### 核心链路
+
+```bash
+# 1. 本地建仓 + 私有仓库 + 推送
+git init -q && git add -A && git commit -F - << 'EOF'
+<提交信息>
+EOF
+git branch -M main
+gh repo create <repo> --private --source=. --remote=origin
+git push -u origin main
+gh repo view <owner>/<repo> --json visibility    # 必须确认 PRIVATE
+
+# 2. 本地生成 Deploy Key（不在服务器生成）
+ssh-keygen -t ed25519 -f ~/.ssh/<repo>-deploy -N "" -C "deploy-key@<repo>-<服务器别名>"
+
+# 3. 公钥加到仓库，只读（不加 --allow-write 即只读）
+gh repo deploy-key add ~/.ssh/<repo>-deploy.pub --repo <owner>/<repo> --title "<服务器别名> (read-only)"
+
+# 4. 私钥传服务器，权限 600
+scp ~/.ssh/<repo>-deploy <别名>:/root/.ssh/<repo>-deploy
+ssh <别名> "chmod 600 /root/.ssh/<repo>-deploy" < /dev/null
+
+# 5. 服务器 SSH config 加 Host 别名（printf，不用 heredoc）
+ssh <别名> "printf '\nHost github-<repo>\n    HostName github.com\n    User git\n    IdentityFile /root/.ssh/<repo>-deploy\n    IdentitiesOnly yes\n    StrictHostKeyChecking accept-new\n' >> /root/.ssh/config && grep -A 6 'Host github-<repo>' /root/.ssh/config" < /dev/null
+
+# 6. 验证认证（先单独验，别直接 clone）
+ssh <别名> "ssh -o BatchMode=yes -T github-<repo> 2>&1 | head -3" < /dev/null
+# 期望：Hi <owner>/<repo>! You've successfully authenticated
+# 仓库名不对 = IdentitiesOnly 没生效
+
+# 7. clone（host 用别名，不是 github.com）
+ssh <别名> "cd /opt && git clone git@github-<repo>:<owner>/<repo>.git <repo>" < /dev/null
+```
+
+### 三个关键点
+
+| 点 | 原因 |
+|---|---|
+| **Deploy Key 设只读** | 服务器只需 pull。单仓库权限，泄露影响面远小于个人 token |
+| **`IdentitiesOnly yes` 不能省** | 服务器上多个项目的 deploy key 会被 SSH 挨个试，GitHub 认第一个匹配的身份 → 报 `Repository not found`，且错误信息完全不提示真实原因 |
+| **密钥本地生成** | 少一次往返；`-C` 注释带上仓库名+服务器名，是日后分辨密钥归属的唯一线索 |
+
+### 部署避坑速查
+
+| 坑 | 正确做法 |
+|---|---|
+| 只看 nginx 配置选端口 | 同时查 `grep -rh listen /etc/nginx/sites-available/` **和** `ss -tln`（实测有端口不在 nginx 配置里但已被占用） |
+| 静态站抄 SPA 的 `try_files` | 静态导出用 `try_files $uri $uri/ $uri.html =404;` + `error_page 404 /404.html;`。SPA 回退会让所有错误 URL 返回首页 + 200，害 SEO |
+| 静态站也跑 `next start` | `output: 'export'` 产物 nginx 直接托管即可，不需要常驻 Node 进程 |
+| 部署脚本不校验产物 | 构建失败时旧 `out/` 还在，reload 后站点照常访问 → 误判成功。必须 `test -f out/index.html \|\| exit 1` |
+| 只验证内网 | 内网 + 外网都要测，且**必须测一个不存在的路径**确认返回 404 |
+| `git reset --hard` 后拉取冲突 | 该命令不删未跟踪文件。先手动传后来才纳入版本管理的文件要先 `rm -f` 再拉 |
+
 ---
 
 ## 命令参考
@@ -169,12 +339,50 @@ rsync -avz --progress local_dir/ <别名>:/remote/path/
 | `REMOTE HOST IDENTIFICATION HAS CHANGED` | `ssh-keygen -R <服务器IP>` |
 | 免密验证失败 | `ssh <别名> "whoami"` 检查 |
 | 私钥权限错误 | `chmod 600 ~/.ssh/id_ed25519_*` |
+| **密码认证失败（密码正确）** | **检查是否已配置该服务器（见下方）** |
 
 ```bash
 # 诊断
 ssh <别名> "sshd -T | grep -E 'pubkeyauth|authorizedkeys'"
 ssh <别名> "ls -l ~/.ssh/authorized_keys"
 ```
+
+### 特例1：密码正确但认证失败
+
+**症状**：
+- `sshctrl.py server add` 报错"认证失败"
+- paramiko 密码连接失败
+- 密码和用户名确认无误
+
+**原因**：服务器已配置SSH密钥，系统优先使用密钥认证
+
+**诊断步骤**：
+```bash
+# 1. 检查 known_hosts
+ssh-keygen -F <服务器IP>
+
+# 2. 检查密钥文件
+ls -la ~/.ssh/ | grep <IP_格式化>
+
+# 3. 检查 SSH config
+cat ~/.ssh/config | grep -A 10 <IP>
+
+# 4. 查找别名
+cat ~/.ssh/config | grep -B 1 "HostName <IP>"
+```
+
+**解决方案**：
+```bash
+# 如果找到已存在的别名，直接使用
+ssh <已存在的别名> "命令"
+
+# 如果需要重新配置，先删除旧配置
+python sshctrl.py server remove <旧别名>
+# 然后重新添加
+python sshctrl.py server add <host> <用户> <密码> [新别名]
+```
+
+**案例**：参考 `SSH别名冲突问题复盘-2026-05-23.md`
 
 ### 关键特例：脚本显示配置完成，但免密仍失败
 
@@ -206,7 +414,8 @@ ssh-remote-control/
 ├── SKILL.md             # 本文档
 ├── README.md            # 用户文档
 └── references/         # 参考资料
-    └── ssh-commands-reference.md  # SSH命令完整参考
+    ├── ssh-commands-reference.md  # SSH命令完整参考
+    └── github-deploy-guide.md     # GitHub 私有仓库 + Deploy Key → 服务器部署完整流程
 ```
 
 ---
@@ -231,16 +440,29 @@ ssh-remote-control/
 
 这三步通过后，即可认为技能完成“可稳定复用”的交付标准。
 
+### 部署任务的额外验收标准
+
+涉及 GitHub 仓库 + 服务器部署时，以下全部通过才算交付完成：
+
+1. `gh repo view <owner>/<repo> --json visibility` 返回 `PRIVATE`
+2. `gh repo deploy-key list` 显示为 **read-only**
+3. `ssh <别名> "ssh -T github-<repo>"` 返回的**仓库名正确**
+4. 内网 + 外网各路由均 200，且**不存在的路径返回 404**（验证 `try_files` 写对）
+5. 更新脚本已纳入版本管理，并**端到端实跑过一次**（不能只当文档留着）
+
 ---
 
 ## 调用策略（防偏航）
 
 当代理在其他项目调用本技能时，必须显式遵守：
 
-1. 必须使用 `$ssh-remote-control` 技能。
-2. 必须使用原生命令：`ssh <别名> "..."` / `scp ...`。
-3. 禁止 `python <<'PYEOF'`、`paramiko`、`sshpass` 等密码或脚本执行路径。
-4. 若首次配置，最多只允许一次 `python sshctrl.py server add ...` 用于引导免密。
+1. **配置前必须先检查**：执行 `server add` 前，先检查 `~/.ssh/config` 是否已有该服务器配置
+2. 必须使用 `$ssh-remote-control` 技能。
+3. 必须使用原生命令：`ssh <别名> "..."` / `scp ...`。
+4. 禁止 `python <<'PYEOF'`、`paramiko`、`sshpass` 等密码或脚本执行路径。
+5. 若首次配置，最多只允许一次 `python sshctrl.py server add ...` 用于引导免密。
+6. **非交互 ssh 一律加 `< /dev/null`**；**禁止远程嵌套 heredoc**（静默失败），改用 `printf` 或本地写好后 `scp`；**远程写文件后必须回读确认**。
+7. 涉及「建 GitHub 仓库 + 部署服务器」时，走 Deploy Key（只读 + `IdentitiesOnly yes`），详见 `references/github-deploy-guide.md`。禁止在服务器上 `gh auth login` 或把 PAT 写进 remote URL。
 
 推荐任务前置提示词：
 ```text
