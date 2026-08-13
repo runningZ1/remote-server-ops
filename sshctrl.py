@@ -26,7 +26,70 @@ import time
 import string
 import secrets
 
-VERSION = "1.3.0"
+VERSION = "1.5.0"
+
+# 2026-07-11 复盘：一次真实上线遇到密码认证被拒绝，根因分散在四处
+# sshd_config 设置里（PasswordAuthentication no 写在第1行、AllowUsers 白名单
+# 漏了目标用户、PermitRootLogin no、Subsystem sftp 整段缺失），每处都要单独
+# 靠用户在 VNC/控制台里截图确认才发现，来回了 5 轮。以后密码认证在 step 1
+# 就失败时，直接把这四处一次性检查+修复的脚本打印给用户，避免逐项排查。
+VNC_AUTH_RESCUE_SCRIPT_TEMPLATE = """\
+# ============================================================
+# 在服务器的 VNC/控制台里（不经过SSH）粘贴执行以下脚本
+# 一次性检查并修复导致密码登录被拒绝的四个常见原因：
+#   1) PasswordAuthentication no（且可能在文件靠前的行生效覆盖后面的 yes）
+#   2) AllowUsers/AllowGroups 白名单里没有目标用户
+#   3) PermitRootLogin no（若目标用户是 root）
+#   4) Subsystem sftp 未配置，导致后续上传公钥/SFTP失败
+# ============================================================
+set -e
+CFG=/etc/ssh/sshd_config
+TARGET_USER="{username}"
+
+cp "$CFG" "$CFG.bak.$(date +%s)"
+echo "已备份: $CFG.bak.*"
+
+# 1) PasswordAuthentication：确保生效值是 yes（sshd按首次出现的行生效）
+if grep -qE '^[[:space:]]*PasswordAuthentication' "$CFG"; then
+    sed -i '0,/^[[:space:]]*PasswordAuthentication/{{s/^[[:space:]]*PasswordAuthentication.*/PasswordAuthentication yes/}}' "$CFG"
+else
+    echo "PasswordAuthentication yes" >> "$CFG"
+fi
+
+# 2) AllowUsers/AllowGroups：如果存在白名单但没有目标用户，追加进去
+if grep -qE '^[[:space:]]*AllowUsers' "$CFG" && ! grep -E '^[[:space:]]*AllowUsers' "$CFG" | grep -qw "$TARGET_USER"; then
+    sed -i "/^[[:space:]]*AllowUsers/ s/\\$/ $TARGET_USER/" "$CFG"
+fi
+
+# 3) PermitRootLogin：目标用户是root时必须允许
+if [ "$TARGET_USER" = "root" ]; then
+    if grep -qE '^[[:space:]]*PermitRootLogin' "$CFG"; then
+        sed -i 's/^[[:space:]]*PermitRootLogin.*/PermitRootLogin yes/' "$CFG"
+    else
+        echo "PermitRootLogin yes" >> "$CFG"
+    fi
+fi
+
+# 4) SFTP subsystem：完全缺失时补上（后续上传公钥依赖SFTP）
+if ! grep -qE '^[[:space:]]*Subsystem[[:space:]]+sftp' "$CFG"; then
+    SFTP_BIN=$(command -v /usr/lib/openssh/sftp-server || command -v /usr/libexec/openssh/sftp-server || echo internal-sftp)
+    echo "Subsystem sftp $SFTP_BIN" >> "$CFG"
+fi
+
+echo "== 修改后关键配置 =="
+grep -nE '^[[:space:]]*(PasswordAuthentication|PermitRootLogin|AllowUsers|Subsystem[[:space:]]+sftp)' "$CFG"
+
+sshd -t && systemctl restart sshd
+echo "== sshd -T 生效值确认 =="
+sshd -T | grep -Ei 'passwordauthentication|permitrootlogin'
+echo "完成。改完后不要关闭本 VNC 窗口，先在别的终端测试:"
+echo "  ssh {username}@<host> \\"whoami\\""
+"""
+
+
+def build_vnc_auth_rescue_script(username: str) -> str:
+    """构造一次性覆盖四类常见sshd拦截原因的 VNC 控制台修复脚本。"""
+    return VNC_AUTH_RESCUE_SCRIPT_TEMPLATE.format(username=username)
 
 CONFIG_DIR = os.path.expanduser("~/.ssh/sshctrl")
 SERVERS_FILE = os.path.join(CONFIG_DIR, "servers.json")
@@ -65,6 +128,14 @@ def run_ssh_command(alias, command, capture=True, timeout=30):
 def run_local_command(cmd, timeout=30):
     """执行本地命令并返回结果。"""
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
+
+def run_sftp_probe(alias, timeout=20):
+    """用 batch 模式探测 SFTP 子系统是否能启动，避免进入交互等待。"""
+    return subprocess.run(
+        ['sftp', '-b', '-', '-oBatchMode=yes', '-oConnectTimeout=10', alias],
+        input='quit\n', capture_output=True, text=True, timeout=timeout
+    )
 
 
 def _upsert_remote_sshd_config(ssh, key, value):
@@ -384,6 +455,40 @@ def diagnose_connection_failure(alias, ip, username, password):
     print(f"     ssh -vvv -o BatchMode=yes {alias} \"echo ok\"")
 
 
+def classify_ssh_debug_output(output):
+    """把 ssh -vvv 输出归类到网络、认证或子系统层。"""
+    lowered = output.lower()
+    if "connection timed out" in lowered or "operation timed out" in lowered:
+        return "网络/端口层: 连接超时，优先检查 IP、端口、安全组、防火墙和本地网络。"
+    if "connection refused" in lowered:
+        return "服务监听层: 端口可达但被拒绝，优先检查 sshd 是否启动并监听该端口。"
+    if "remote host identification has changed" in lowered:
+        return "本机 known_hosts 层: 主机指纹冲突，确认服务器身份后执行 ssh-keygen -R <host>。"
+    if "permission denied" in lowered or "authentication failed" in lowered:
+        return "认证层: SSH 握手已进入认证阶段，优先检查用户、密码、公钥、PermitRootLogin、PasswordAuthentication 和 authorized_keys。"
+    if "subsystem request failed" in lowered or "unable to start subsystem" in lowered:
+        return "SFTP subsystem 层: SSH 认证可能已通过，但服务端 sftp 子系统启动失败。"
+    if "authentication succeeded" in lowered:
+        return "认证层: SSH 认证成功；若文件传输失败，请继续检查 SFTP subsystem。"
+    if "connection established" in lowered or "handshake" in lowered:
+        return "握手/认证边界: TCP 已建立，继续根据后续 Permission denied 或 subsystem 日志定位。"
+    return "未归类: 请保留完整 ssh -vvv 输出，并结合服务端 sshd -T 与日志继续排查。"
+
+
+def _print_command_output(title, result, max_lines=80):
+    print(f"\n{title}")
+    print("-" * len(title))
+    output = ((result.stdout or "") + (result.stderr or "")).strip()
+    if not output:
+        print("(无输出)")
+        return
+    lines = output.splitlines()
+    for line in lines[:max_lines]:
+        print(line)
+    if len(lines) > max_lines:
+        print(f"... 已截断 {len(lines) - max_lines} 行")
+
+
 def validate_host(host):
     """验证主机名或IP地址格式。"""
     ip_pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
@@ -406,7 +511,12 @@ def cmd_server_add(args):
     port = args.port
     username = args.username
     password = args.password
-    alias = args.alias or host.replace('.', '_').replace('-', '_')
+    alias = args.alias.strip()
+
+    if not alias:
+        print("✗ 别名不能为空。别名必须由用户显式指定（项目名/云厂商名优先，实在没有再用IP），")
+        print("  不要自动用IP拼一个——这一步不能替用户做主，先问清楚再重跑。")
+        sys.exit(1)
 
     if not validate_host(host):
         print(f"✗ 无效的主机地址: {host}")
@@ -437,7 +547,13 @@ def cmd_server_add(args):
         print(f"   主机名: {hostname}")
         ssh.close()
     except paramiko.AuthenticationException:
-        print("   ✗ 认证失败，请检查用户名和密码")
+        print("   ✗ 认证失败（用户名/密码可能正确，但服务器策略拒绝了登录）")
+        print("\n   常见原因：sshd_config 里 PasswordAuthentication=no、")
+        print("   AllowUsers 白名单未包含该用户、PermitRootLogin=no 等。")
+        print("   仅凭 SSH 报错无法区分具体是哪一项——因为登录都还没成功，")
+        print("   本工具连不进去查看服务器配置，需要你通过服务商的 VNC/")
+        print("   控制台（不经过SSH）登录服务器后运行下面脚本一次性排查：\n")
+        print(build_vnc_auth_rescue_script(username))
         sys.exit(1)
     except Exception as e:
         print(f"   ✗ 连接失败: {e}")
@@ -699,9 +815,10 @@ def cmd_server_repair_pubkey(args):
             ssh, "AuthorizedKeysFile", ".ssh/authorized_keys .ssh/authorized_keys2"
         )
         if username == "root":
-            # PermitRootLogin 必须至少是 prohibit-password 才能让 root 走通公钥认证，
-            # 但这会附带关闭 root 的密码登录（即使 PasswordAuthentication 仍是 yes）。
-            # 必须显式告知，避免变成"配置被静默改动"式的排查（2026-08-12 复盘教训）。
+            # PermitRootLogin 必须至少允许 prohibit-password 才能让 root
+            # 走通公钥认证；这一步会附带关闭 root 的密码登录，明确告知用户，
+            # 避免变成又一次"配置被静默改动"排查（2026-07-11 复盘教训，
+            # 2026-08-12 再次独立踩坑确认）。
             _upsert_remote_sshd_config(ssh, "PermitRootLogin", "prohibit-password")
             print("   ⚠ 已将 PermitRootLogin 设为 prohibit-password：")
             print("     root 之后只能用密钥登录，密码登录 root 将不再可用。")
@@ -765,6 +882,356 @@ def cmd_server_repair_pubkey(args):
         sys.exit(1)
 
 
+def cmd_server_diagnose(args):
+    """只读分层诊断：本地 SSH 解析、BatchMode 验证、服务端 sshd 策略、SFTP 子系统。"""
+    alias = args.alias
+
+    print(f"\n{'='*60}")
+    print("SSH Remote Control - 分层诊断")
+    print(f"{'='*60}")
+    print(f"别名: {alias}")
+    print(f"{'='*60}")
+
+    print("\n1️⃣ 本地 SSH 有效配置")
+    ssh_g = run_local_command(['ssh', '-G', alias], timeout=10)
+    if ssh_g.returncode == 0:
+        wanted = ('hostname ', 'user ', 'port ', 'identityfile ')
+        for line in (ssh_g.stdout or '').splitlines():
+            if line.lower().startswith(wanted):
+                print(f"   {line}")
+    else:
+        _print_command_output("ssh -G 失败", ssh_g)
+
+    print("\n2️⃣ 本地免密认证探测")
+    probe = run_local_command(
+        ['ssh', '-vvv', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', alias, 'echo SSH_OK'],
+        timeout=20
+    )
+    combined = (probe.stderr or "") + (probe.stdout or "")
+    print(f"   返回码: {probe.returncode}")
+    print(f"   归类: {classify_ssh_debug_output(combined)}")
+    if probe.returncode == 0:
+        print("   ✓ BatchMode 免密 SSH 通过")
+    else:
+        tail = "\n".join(combined.strip().splitlines()[-12:])
+        if tail:
+            print("   关键尾部日志:")
+            for line in tail.splitlines():
+                print(f"   {line}")
+        print(f"   建议: python sshctrl.py server repair-pubkey {alias} <密码>")
+        if not args.full:
+            return 2
+
+    print("\n3️⃣ 服务端 sshd 生效策略")
+    policy_cmd = (
+        "sshd -T 2>/dev/null | "
+        "grep -Ei 'permitrootlogin|passwordauthentication|pubkeyauthentication|"
+        "kbdinteractiveauthentication|usepam|authorizedkeysfile|subsystem' || true"
+    )
+    policy = run_local_command(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', alias, policy_cmd], timeout=20)
+    if policy.returncode == 0 and (policy.stdout or '').strip():
+        for line in policy.stdout.strip().splitlines():
+            print(f"   {line}")
+    else:
+        _print_command_output("未能读取 sshd -T", policy)
+
+    print("\n4️⃣ SFTP subsystem 配置扫描")
+    sftp_cfg_cmd = (
+        "grep -Rni '^[[:space:]]*Subsystem[[:space:]]\\+sftp' "
+        "/etc/ssh /etc/ssh/sshd_config.d 2>/dev/null || true"
+    )
+    sftp_cfg = run_local_command(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', alias, sftp_cfg_cmd], timeout=20)
+    if (sftp_cfg.stdout or '').strip():
+        for line in sftp_cfg.stdout.strip().splitlines():
+            print(f"   {line}")
+    else:
+        print("   ⚠ 未发现显式 Subsystem sftp 配置；如 SFTP 失败，建议修复为 internal-sftp。")
+
+    print("\n5️⃣ SFTP 启动探测")
+    sftp_probe = run_sftp_probe(alias, timeout=20)
+    sftp_output = (sftp_probe.stderr or "") + (sftp_probe.stdout or "")
+    print(f"   返回码: {sftp_probe.returncode}")
+    print(f"   归类: {classify_ssh_debug_output(sftp_output)}")
+    if sftp_probe.returncode == 0:
+        print("   ✓ SFTP subsystem 可启动")
+    else:
+        tail = "\n".join(sftp_output.strip().splitlines()[-12:])
+        if tail:
+            print("   关键尾部日志:")
+            for line in tail.splitlines():
+                print(f"   {line}")
+        print(f"   建议: python sshctrl.py server repair-sftp {alias}")
+
+    print(f"\n{'='*60}")
+    print("诊断完成")
+    print(f"{'='*60}")
+    return 0
+
+
+def cmd_server_repair_sftp(args):
+    """修复 SFTP subsystem：备份配置、清理主配置重复项、追加 internal-sftp、语法检查并重载。"""
+    alias = args.alias
+
+    print(f"\n{'='*60}")
+    print("SSH Remote Control - 修复 SFTP subsystem")
+    print(f"{'='*60}")
+    print(f"别名: {alias}")
+    print(f"{'='*60}\n")
+
+    print("1️⃣ 预检当前免密 SSH ...")
+    precheck = run_local_command(
+        ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', alias, 'echo SSH_OK'],
+        timeout=20
+    )
+    if precheck.returncode != 0:
+        _print_command_output("免密 SSH 未通过，停止修复", precheck)
+        print(f"建议先执行: python sshctrl.py server repair-pubkey {alias} <密码>")
+        return 2
+    print("   ✓ 免密 SSH 可用")
+
+    print("\n2️⃣ 备份并修复 /etc/ssh/sshd_config ...")
+    remote_script = r"""
+set -eu
+backup="/etc/ssh/sshd_config.bak.$(date +%Y%m%d-%H%M%S)"
+cp /etc/ssh/sshd_config "$backup"
+tmp="$(mktemp)"
+grep -vE '^[[:space:]]*Subsystem[[:space:]]+sftp([[:space:]]|$)' /etc/ssh/sshd_config > "$tmp"
+printf '\nSubsystem sftp internal-sftp\n' >> "$tmp"
+cat "$tmp" > /etc/ssh/sshd_config
+rm -f "$tmp"
+sshd -t
+(systemctl reload sshd || systemctl reload ssh || systemctl restart sshd || systemctl restart ssh)
+echo "backup=$backup"
+sshd -T 2>/dev/null | grep -Ei 'subsystem|pubkeyauthentication|passwordauthentication|permitrootlogin' || true
+"""
+    result = run_local_command(['ssh', alias, remote_script], timeout=30)
+    if result.returncode != 0:
+        _print_command_output("SFTP 修复失败", result)
+        return result.returncode
+    _print_command_output("服务端修复输出", result)
+
+    print("\n3️⃣ SFTP 回归验证 ...")
+    sftp_probe = run_sftp_probe(alias, timeout=20)
+    if sftp_probe.returncode == 0:
+        print("   ✓ SFTP subsystem 可启动")
+        return 0
+    _print_command_output("SFTP 验证未通过", sftp_probe)
+    print("请检查 /etc/ssh/sshd_config.d/*.conf 是否还有覆盖项，或查看 journalctl -u ssh/sshd。")
+    return sftp_probe.returncode
+
+
+# ============== 别名解析（find / connect） ==============
+#
+# 设计目标：让 LLM 永远不需要硬记 "198.44.177.126 对应 jxyg-198"。
+# 给一个 host（IP/域名/别名前缀），自动在 ~/.ssh/config 里反查并验证免密。
+
+def parse_ssh_config(config_path):
+    """
+    解析 SSH config 文件，返回块列表。
+    每块: {alias, aliases, hostname, host, port, user, identityfile}
+    """
+    blocks = []
+    if not os.path.exists(config_path):
+        return blocks
+
+    current = None
+    with open(config_path, encoding='utf-8', errors='ignore') as f:
+        for raw in f:
+            line = raw.rstrip()
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#'):
+                continue
+
+            # 处理 Include 指令（递归）
+            if stripped.lower().startswith('include '):
+                inc = stripped.split(None, 1)[1].strip()
+                inc_path = os.path.expanduser(inc)
+                if not os.path.isabs(inc_path):
+                    inc_path = os.path.join(os.path.dirname(config_path), inc_path)
+                # 展开通配符
+                import glob as _glob
+                for p in _glob.glob(inc_path):
+                    blocks.extend(parse_ssh_config(p))
+                current = None
+                continue
+
+            if stripped.lower().startswith('host '):
+                if current:
+                    blocks.append(current)
+                aliases = stripped.split()[1:]
+                real = [a for a in aliases if not any(c in a for c in ['*', '?'])]
+                primary = real[0] if real else (aliases[0] if aliases else None)
+                current = {
+                    'aliases': real,
+                    'alias': primary,
+                    'hostname': None,
+                    'host': None,
+                    'port': None,
+                    'user': None,
+                    'identityfile': None,
+                }
+                continue
+
+            if current is None:
+                continue
+
+            m = re.match(r'^\s*([A-Za-z][A-Za-z0-9-]*)\s+(.+?)\s*$', stripped)
+            if not m:
+                continue
+            key = m.group(1).lower()
+            val = m.group(2).strip()
+            if key not in ('hostname', 'host', 'port', 'user', 'identityfile'):
+                continue
+            if val.startswith('~'):
+                val = os.path.expanduser(val)
+            current[key] = val
+
+        if current:
+            blocks.append(current)
+    return blocks
+
+
+def find_alias_exact(target, config_path=None):
+    """
+    精确匹配：target 必须是已配置的 HostName / 别名 本身。
+    返回第一个匹配的 block。
+    """
+    config_path = config_path or os.path.join(os.path.expanduser('~'), '.ssh', 'config')
+    blocks = parse_ssh_config(config_path)
+    t = target.strip()
+    t_l = t.lower()
+    for b in blocks:
+        if not b.get('alias'):
+            continue
+        if t in b.get('aliases', []):
+            return b
+        host = (b.get('hostname') or b.get('host') or '')
+        if host.lower() == t_l:
+            return b
+    return None
+
+
+def find_alias_fuzzy(target, config_path=None):
+    """
+    模糊匹配：target 是 IP/域名/别名前缀。
+    返回所有候选（按匹配质量排序）。
+    """
+    config_path = config_path or os.path.join(os.path.expanduser('~'), '.ssh', 'config')
+    blocks = parse_ssh_config(config_path)
+    t = target.strip().lower()
+    exact_alias, exact_host, prefix_alias, contains = [], [], [], []
+
+    for b in blocks:
+        if not b.get('alias'):
+            continue
+        alias_l = b['alias'].lower()
+        host_l = (b.get('hostname') or b.get('host') or '').lower()
+        if alias_l == t:
+            exact_alias.append(b)
+        elif host_l == t:
+            exact_host.append(b)
+        elif alias_l.startswith(t):
+            prefix_alias.append(b)
+        elif t in alias_l or t in host_l:
+            contains.append(b)
+    return exact_alias + exact_host + prefix_alias + contains
+
+
+def format_alias_block(b):
+    """把 block 格式化成单行可读输出。"""
+    alias = b.get('alias') or '?'
+    host = b.get('hostname') or b.get('host') or '?'
+    port = b.get('port') or '22'
+    user = b.get('user') or '?'
+    return f"{alias}\thost={host}\tport={port}\tuser={user}"
+
+
+def cmd_find(args):
+    """
+    查找 host 对应的别名（输出机器可读格式）。
+
+    输出协议:
+      ALIAS_EXACT:<alias>:<host>:<port>:<user>
+      ALIAS_FUZZY:<alias>:<host>:<port>:<user>
+      ALIAS_NONE:<target>
+    """
+    target = args.target
+    config_path = os.path.join(os.path.expanduser('~'), '.ssh', 'config')
+
+    # 1) 精确匹配
+    b = find_alias_exact(target, config_path)
+    if b:
+        print(f"ALIAS_EXACT:{b['alias']}:{b.get('hostname') or b.get('host', '')}:"
+              f"{b.get('port') or 22}:{b.get('user') or ''}")
+        return 0
+
+    # 2) 模糊匹配
+    cands = find_alias_fuzzy(target, config_path)
+    if cands:
+        b = cands[0]
+        print(f"ALIAS_FUZZY:{b['alias']}:{b.get('hostname') or b.get('host', '')}:"
+              f"{b.get('port') or 22}:{b.get('user') or ''}")
+        if len(cands) > 1:
+            others = ', '.join(c['alias'] for c in cands[1:])
+            print(f"# 其他候选: {others}", file=sys.stderr)
+        return 0
+
+    # 3) 找不到
+    print(f"ALIAS_NONE:{target}")
+    print(f"# 未在 ~/.ssh/config 中找到 {target} 对应的别名", file=sys.stderr)
+    return 1
+
+
+def cmd_connect(args):
+    """
+    智能连接入口：自动找别名 + 验证免密。
+
+    输出协议:
+      USING_ALIAS=<alias>          # 成功，stdout 最后一行
+      AUTH_FAILED:<alias>:<reason> # 别名存在但免密失败
+      NO_ALIAS:<target>            # 找不到任何别名，需要引导配置
+    """
+    target = args.target
+    config_path = os.path.join(os.path.expanduser('~'), '.ssh', 'config')
+
+    # 1) 精确 + 模糊匹配
+    b = find_alias_exact(target, config_path)
+    match_type = 'exact' if b else None
+    if not b:
+        cands = find_alias_fuzzy(target, config_path)
+        if cands:
+            b = cands[0]
+            match_type = 'fuzzy'
+
+    if b:
+        alias = b['alias']
+        # 验证免密
+        verify = subprocess.run(
+            ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
+             alias, 'echo "AUTH_OK"'],
+            capture_output=True, text=True, timeout=15
+        )
+        if verify.returncode == 0 and 'AUTH_OK' in (verify.stdout or ''):
+            print(f"USING_ALIAS={alias}")
+            if match_type == 'fuzzy':
+                print(f"# 提示: {target} -> 别名 {alias}（模糊匹配）", file=sys.stderr)
+            return 0
+        else:
+            err = (verify.stderr or '').strip().splitlines()[-1] if verify.stderr else 'unknown'
+            print(f"AUTH_FAILED:{alias}:{err}")
+            print(f"# 免密失败，请执行: python sshctrl.py server repair-pubkey {alias} <密码>",
+                  file=sys.stderr)
+            return 2
+
+    # 2) 找不到
+    print(f"NO_ALIAS:{target}")
+    print(f"# 该 host 尚未配置 SSH 别名", file=sys.stderr)
+    print(f"# 请提供 用户名 + 密码 后执行：", file=sys.stderr)
+    print(f"#   python sshctrl.py server add {target} <用户名> <密码> [别名]",
+          file=sys.stderr)
+    return 3
+
+
 # ============== 主入口 ==============
 
 def main():
@@ -772,14 +1239,20 @@ def main():
         description="SSH Remote Control - SSH免密连接配置工具",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-核心SOP流程：
-  1. sshctrl server add <host> <用户> <密码> [别名] [--port 端口]  # 配置免密
-  2. ssh <别名> "命令"                              # 日常操作
+核心SOP流程（AI agent 调用）:
+  1. sshctrl connect <host>           # 智能解析别名 + 验证免密
+  2. sshctrl find <host>              # 仅查找别名，不连接
+  3. sshctrl server add <host> <用户> <密码> [别名]   # 新服务器引导配置
+  4. ssh <别名> "命令"                # 日常操作（永远用别名）
 
 示例:
+  sshctrl connect 198.44.177.126
+  sshctrl find jxyg
   sshctrl server add 192.168.1.100 root password myserver
   sshctrl server add connect.nmb2.seetacloud.com root password myserver --port 20605
+  sshctrl server diagnose myserver
   sshctrl server repair-pubkey myserver password
+  sshctrl server repair-sftp myserver
   sshctrl server list
   sshctrl server ssh myserver "uptime"
         """
@@ -787,6 +1260,13 @@ def main():
     parser.add_argument('--version', action='version', version=f'sshctrl {VERSION}')
 
     subparsers = parser.add_subparsers(dest='command', help='可用子命令')
+
+    # 顶层 find / connect（AI agent 默认入口）
+    find_parser = subparsers.add_parser('find', help='在 ~/.ssh/config 中反查 host 对应的别名')
+    find_parser.add_argument('target', help='IP / 域名 / 别名前缀')
+
+    connect_parser = subparsers.add_parser('connect', help='智能连接：找别名 + 验证免密')
+    connect_parser.add_argument('target', help='IP / 域名 / 别名')
 
     # server 子命令
     server_parser = subparsers.add_parser('server', help='服务器管理')
@@ -796,7 +1276,7 @@ def main():
     add_parser.add_argument('host', help='服务器主机（IP或域名）')
     add_parser.add_argument('username', help='用户名')
     add_parser.add_argument('password', help='密码')
-    add_parser.add_argument('alias', nargs='?', help='SSH别名（可选）')
+    add_parser.add_argument('alias', help='SSH别名（必填，须先问用户：项目名/云厂商名优先，IP兜底）')
     add_parser.add_argument('--port', type=int, default=22, help='SSH端口（默认22）')
 
     server_subparsers.add_parser('list', help='列出所有已配置的服务器')
@@ -837,9 +1317,30 @@ def main():
     )
     addcollab_parser.add_argument('--chroot-dir', help='[sftp-only] SFTP chroot 根目录（绝对路径）')
 
+    diagnose_parser = server_subparsers.add_parser(
+        'diagnose',
+        help='只读分层诊断 SSH 认证与 SFTP subsystem'
+    )
+    diagnose_parser.add_argument('alias', help='服务器别名')
+    diagnose_parser.add_argument(
+        '--full',
+        action='store_true',
+        help='即使免密 SSH 失败也继续尝试后续只读检查'
+    )
+
+    repair_sftp_parser = server_subparsers.add_parser(
+        'repair-sftp',
+        help='修复 SFTP subsystem 为 internal-sftp 并验证'
+    )
+    repair_sftp_parser.add_argument('alias', help='服务器别名')
+
     args = parser.parse_args()
 
-    if args.command == 'server':
+    if args.command == 'find':
+        sys.exit(cmd_find(args))
+    elif args.command == 'connect':
+        sys.exit(cmd_connect(args))
+    elif args.command == 'server':
         if args.server_command == 'add':
             cmd_server_add(args)
         elif args.server_command == 'list':
@@ -852,6 +1353,10 @@ def main():
             cmd_server_repair_pubkey(args)
         elif args.server_command == 'add-collaborator':
             cmd_server_add_collaborator(args)
+        elif args.server_command == 'diagnose':
+            sys.exit(cmd_server_diagnose(args))
+        elif args.server_command == 'repair-sftp':
+            sys.exit(cmd_server_repair_sftp(args))
         else:
             server_parser.print_help()
     else:

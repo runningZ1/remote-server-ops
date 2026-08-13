@@ -3,7 +3,7 @@
 [![GitHub](https://img.shields.io/badge/GitHub-ssh--remote--control-blue?logo=github)](https://github.com/runningZ1/ssh-remote-control)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**核心功能**：配置SSH免密连接，之后直接用 `ssh` 命令操作远程服务器。
+**核心功能**：配置SSH免密连接，AI agent 通过智能别名解析使用原生SSH命令操作远程服务器。
 
 **GitHub**: https://github.com/runningZ1/ssh-remote-control
 
@@ -29,7 +29,19 @@ python sshctrl.py server add 38.76.206.12 root mypassword myserver
 python sshctrl.py server add connect.nmb2.seetacloud.com root mypassword seetacloud_20605 --port 20605
 ```
 
-### 3. 日常操作（直接用SSH命令）
+### 3. 智能连接（AI agent 默认入口）
+
+```bash
+# 输入 host，自动在 ~/.ssh/config 里反查别名
+python sshctrl.py connect <host>
+
+# 输出:
+#   USING_ALIAS=jxyg-198          ← 成功，拿到别名
+#   AUTH_FAILED:...               ← 别名存在但免密失败
+#   NO_ALIAS:...                  ← 没找到，需要 server add
+```
+
+### 4. 日常操作（直接用SSH命令）
 
 ```bash
 # 执行命令
@@ -91,6 +103,12 @@ python sshctrl.py server ssh <别名> [命令]
 
 # 自动修复服务端公钥认证（当免密失败时）
 python sshctrl.py server repair-pubkey <别名> <密码>
+
+# 只读分层诊断 SSH 认证、sshd 策略和 SFTP subsystem
+python sshctrl.py server diagnose <别名>
+
+# 修复 SFTP subsystem 为 internal-sftp，并验证
+python sshctrl.py server repair-sftp <别名>
 ```
 
 ## 完整成功流程（推荐SOP）
@@ -104,7 +122,32 @@ python sshctrl.py server repair-pubkey <别名> <密码>
 
 # 3) 最终验收（必须无交互成功）
 ssh -o BatchMode=yes <别名> "whoami && hostname"
+
+# 4) SSH/SFTP 分层诊断（推荐）
+python sshctrl.py server diagnose <别名>
 ```
+
+## SSH / SFTP 分层排障能力
+
+当出现 `Handshake completed`、`Permission denied`、`subsystem request failed on channel 0`、`Unable to start subsystem: sftp` 等问题时，不要直接判断为网络不通。优先执行：
+
+```bash
+python sshctrl.py server diagnose <别名>
+```
+
+诊断会按网络层、服务监听层、握手层、认证层、SFTP subsystem 层归类问题，并读取本地 `ssh -G`、远端 `sshd -T`、SFTP 配置和 SFTP 启动结果。
+
+常见修复：
+
+```bash
+# 公钥/免密认证失败
+python sshctrl.py server repair-pubkey <别名> <密码>
+
+# SSH 可登录但 SFTP / Xftp 失败
+python sshctrl.py server repair-sftp <别名>
+```
+
+注意：`PermitRootLogin yes` 和 `PasswordAuthentication yes` 只适合作为救援态。稳定后建议改为 key 登录、`PermitRootLogin prohibit-password` 或独立 `deploy` 用户。
 
 ---
 
@@ -261,12 +304,44 @@ ssh-keygen -R <服务器IP>
 
 ---
 
+## 协作者接入
+
+**自己用免密，协作者用密码——两种方式可以同时开启，互不影响。**
+
+### 快速给协作者开通访问
+
+```bash
+# 1. 确认服务器允许密码登录
+ssh <别名> "sshd -T | grep -E 'permitrootlogin|passwordauthentication'"
+
+# 2. 如果 permitrootlogin 是 prohibit-password，先修改（否则密码正确也会失败）
+ssh <别名> "grep 'PermitRootLogin' /etc/ssh/sshd_config"  # 先看实际写法
+ssh <别名> "sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && systemctl reload sshd"
+
+# 3. 把 IP + 用户名 + 密码 发给协作者即可
+```
+
+### 给协作者添加免密（长期合作）
+
+```bash
+# 协作者先生成公钥发给你，然后：
+ssh <别名> "echo '协作者的公钥内容' >> ~/.ssh/authorized_keys"
+```
+
+### SSH Config 维护
+
+一台服务器只保留一个别名。定期检查是否有重复：
+```bash
+grep "HostName" ~/.ssh/config | awk '{print $2}' | sort | uniq -c | sort -rn
+```
+
 ## 安全说明
 
 配置完成后：
-- 密码不会保存
-- 所有操作使用SSH密钥免密执行
-- 建议在服务器上禁用密码认证
+- 密码不会保存在本地
+- 自己的操作使用 SSH 密钥免密执行（更安全）
+- 如果需要给协作者密码访问，确认 `PermitRootLogin yes` 已开启
+- 长期协作者建议用公钥认证或独立账号，避免共享 root 密码
 
 ---
 
@@ -300,4 +375,4 @@ ssh-keygen -R <服务器IP>
 
 ---
 
-**最后更新**: 2026-04-30
+**最后更新**: 2026-06-20
