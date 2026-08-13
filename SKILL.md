@@ -312,7 +312,55 @@ python sshctrl.py server remove <别名>
 
 # SSH连接（可选，日常直接用 ssh <别名> 即可）
 python sshctrl.py server ssh <别名> [命令]
+
+# 为协作者创建受限账号（非 root、仅密码登录、按档位授权）
+python sshctrl.py server add-collaborator <管理员别名> <用户名> <档位> [选项]
 ```
+
+### 给协作者开受限账号，而不是共享 root
+
+**场景**：有协作开发者需要登录服务器，但不想给对方 root 权限，也不想让对方走免密（希望对方就是拿一个账号密码登录，权限被限定在规定范围内）。
+
+`server add-collaborator` 会：
+1. 用管理员别名（已配置好免密）远程创建一个新的 Linux 账号，自动生成随机强密码（也可用 `--password` 自定义）
+2. 按档位授权，不多给任何权限
+3. 在 `/etc/ssh/sshd_config` 追加一个只针对这个新账号的 `Match User` 块：开启该账号的密码登录、**关闭该账号的免密登录**（`PubkeyAuthentication no`），root 和其他已有账号的策略完全不受影响
+4. 备份配置、`sshd -t` 校验、reload、用 `sshd -T -C user=<账号>` 只读校验生效策略（不会用 sshpass 之类的方式去真的拿密码测试登录，遵守本技能"禁止密码自动化"的规则）
+
+四档权限模板：
+
+| 档位 | 说明 | 关键参数 |
+|---|---|---|
+| `readonly-deploy` | 只读+部署：能读写指定项目目录，无通用 sudo，可选授权重启指定服务 | `--group <已存在的项目属组>`、`--restart-service <服务名>`（可重复） |
+| `full-shell` | 完整 shell，无 sudo：普通用户权限，不加入 sudo/wheel/docker 组 | 无 |
+| `sudo-whitelist` | 特定命令 sudo 白名单：只能免密执行显式列出的绝对路径命令，其余一律拒绝 | `--sudo-cmd <绝对路径命令>`（必填，可重复） |
+| `sftp-only` | 只 SFTP，不给 shell：chroot 到指定目录，只能上传/下载文件 | `--chroot-dir <绝对路径>`（必填） |
+
+示例：
+
+```bash
+# 只读+部署：加入 deploy 组，并允许免密重启 myapp 服务
+python sshctrl.py server add-collaborator myserver alice readonly-deploy \
+  --group deploy --restart-service myapp
+
+# 完整 shell，无 sudo
+python sshctrl.py server add-collaborator myserver bob full-shell
+
+# 特定命令 sudo 白名单：只能重启一个指定的 docker 容器
+python sshctrl.py server add-collaborator myserver carol sudo-whitelist \
+  --sudo-cmd "/usr/bin/docker restart myapp-container"
+
+# 只 SFTP，chroot 到指定目录，无 shell
+python sshctrl.py server add-collaborator myserver dave sftp-only \
+  --chroot-dir /srv/sftp/dave
+```
+
+**注意事项**：
+- `readonly-deploy` 依赖你已经把项目目录设成组可写（如 `chown -R :deploy /opt/app && chmod -R 2775 /opt/app`），本命令只负责把账号加入这个属组，不会替你改目录权限。
+- `--group` 必须是已存在的属组，工具不会替你静默新建，避免误建出权限不明的组。
+- 密码只在命令输出里显示一次，不落盘，请立即转发给协作者并妥善保管；对方连接方式是原生 `ssh <账号>@<服务器IP> -p <端口>`，不需要你的私钥或本地别名。
+- 该账号无法免密登录（`PubkeyAuthentication no` 只对这一个账号生效），root 和其他既有账号的免密策略不受影响。
+- 若账号已存在、或 `sshd_config` 里已有同名 `Match User` 块，命令会直接中止，不会覆盖已有配置。
 
 ### SSH（日常操作用）
 
@@ -439,6 +487,33 @@ ssh-remote-control/
 3. `ssh <别名> "uptime && free -h && df -h /"`
 
 这三步通过后，即可认为技能完成“可稳定复用”的交付标准。
+
+### ⚠️ 重要陷阱：`repair-pubkey` 会静默关闭 root 密码登录
+
+`repair-pubkey` 为了让 root 走通公钥认证，会把 `PermitRootLogin` 设为
+`prohibit-password`（等同旧版 `without-password`）。这个值**只影响 root**，
+且语义是"root 只能用密钥登录，密码登录直接拒绝"——即使
+`PasswordAuthentication` 仍是 `yes`，root 用密码登录也会被拒绝
+（`Permission denied (publickey,password)`）。
+
+**如果用户要求"密码登录和免密登录都要能用"**：
+1. 先确认是否真的需要 root 密码登录，优先建议新建一个 sudo 权限受限的
+   部署用户走密码通道，而不是直接放开 root。
+2. 若用户坚持要 root 双通道，需要手动把 `PermitRootLogin` 改成 `yes`
+   （`repair-pubkey` 不会做这一步，因为这会扩大攻击面，必须显式确认）：
+   ```bash
+   ssh <别名> "cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.\$(date +%F-%H%M%S) && sed -i 's/^PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && sshd -t && systemctl reload sshd"
+   ```
+3. 改完之后明确提醒用户：root 密码登录已放开，存在被暴力破解的风险，
+   建议加白名单 / fail2ban。
+4. 验证密码通道时，遵守"禁止 sshpass"规则——不要在此技能里用密码自动化
+   验证，改为让用户自行用密码交互登录一次确认，或只验证 `sshd -T` 的
+   `permitrootlogin`/`passwordauthentication` 输出是否符合预期。
+
+（复盘于 2026-08-12：`server add` 完成后免密验证一次因网络抖动超时崩溃，
+`repair-pubkey` 修复后又把 root 密码登录静默关掉，用户要求两者都能用时才
+发现。已同步修复：验证步骤加超时兜底，`repair-pubkey` 改 root 密码登录策略
+时会打印警告。）
 
 ### 部署任务的额外验收标准
 
