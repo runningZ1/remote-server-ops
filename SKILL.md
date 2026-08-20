@@ -7,7 +7,9 @@ description: >-
   transfer files with ssh/scp/rsync/sftp, repair public-key authentication,
   diagnose SSH handshake/authentication failures, fix SFTP subsystem errors
   such as "subsystem request failed" and "Unable to start subsystem: sftp",
-  or create a scoped non-root collaborator account with password-only login.
+  create a scoped non-root collaborator account with password-only login,
+  or deploy and verify HTTPS/TLS on a remotely managed Linux host (including
+  publicly trusted certificates for a bare public IP address).
 ---
 
 # SSH Remote Control
@@ -93,6 +95,18 @@ sftp <alias>
 ```
 
 Keep remote commands simple in PowerShell. For complex remote logic, upload a script and run it remotely instead of nesting long quoted one-liners.
+
+## Secure Deployment and HTTPS
+
+For remote application deployments, first inspect live capacity, existing listeners, Docker state, and Nginx routing before creating a project directory or binding a port. Verify the deployed application from outside the server, not only through loopback.
+
+For HTTPS requests, distinguish the requested identifier before selecting a certificate path:
+
+- A domain normally uses a standard ACME certificate and domain validation.
+- A bare public IP can use a publicly trusted ACME IP certificate only when the CA/client support it; it is short-lived and requires reliable renewal.
+- A private or non-routable IP cannot receive a publicly trusted certificate; explain the self-signed/private-CA trade-off rather than claiming browser trust.
+
+Read [references/ip-https-deployment.md](references/ip-https-deployment.md) before changing Nginx, Certbot, ACME routes, certificates, or renewal for an IP-only or shared-host HTTPS deployment. It contains the required preflight, staging-first workflow, PowerShell-safe transfer method, renewal contract, and validation matrix.
 
 ## Command Reference
 
@@ -254,6 +268,7 @@ Notes:
 
 - Read `references/ssh-sftp-troubleshooting.md` for the full layered model, rescue-vs-production configs, evidence commands, and AI handoff prompt.
 - Read `references/ssh-commands-reference.md` for broader SSH/scp/rsync command examples.
+- Read `references/ip-https-deployment.md` for public-IP HTTPS, Nginx reverse proxying, ACME webroot validation, certificate renewal, and shared-host TLS verification.
 - Read `references/detailed-guide.md` when onboarding a new user to the older full workflow.
 - Treat files in `references/legacy/` as historical context only; do not load them unless investigating previous behavior.
 
