@@ -1,8 +1,10 @@
-# SSH Remote Control
+# Remote Server Ops
 
 [中文](README.md) · [English](README.en.md)
 
-Agent skill + local CLI for **alias-first** SSH to Linux servers: key onboarding, layered diagnosis, pubkey/SFTP repair, scoped collaborator accounts, and (when requested) public-IP HTTPS.
+Agent skill + local CLI for **alias-first** remote Linux operations: key onboarding, layered diagnosis, pubkey/SFTP repair, scoped collaborator accounts, deploys, and (when requested) public-IP HTTPS.
+
+Formerly `ssh-remote-control`. Old GitHub URLs redirect here.
 
 Daily work after onboarding is native OpenSSH:
 

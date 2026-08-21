@@ -1,8 +1,10 @@
-# SSH Remote Control
+# Remote Server Ops
 
 [中文](README.md) · [English](README.en.md)
 
-面向 Agent 的 **别名优先** Linux SSH 技能：密钥接入、分层诊断、公钥/SFTP 修复、受限协作者账号，以及按需做公网 IP 的 HTTPS。
+面向 Agent 的 **别名优先** 远程 Linux 运维技能：密钥接入、分层诊断、公钥/SFTP 修复、受限协作者账号、部署，以及按需做公网 IP 的 HTTPS。
+
+原仓库名 `ssh-remote-control` 已更名为 `remote-server-ops`。旧链接会跳转到新地址。
 
 接入完成后，日常只用原生 OpenSSH：
 

@@ -1,18 +1,18 @@
 ---
-name: ssh-remote-control
+name: remote-server-ops
 description: >-
-  Configure, diagnose, repair, and use SSH on remote Linux hosts via stable
-  local aliases. Use for key onboarding, host-to-alias mapping, ssh/scp/rsync
-  /sftp, pubkey repair, handshake/auth failures, SFTP subsystem errors
-  ("subsystem request failed", "Unable to start subsystem: sftp"), scoped
-  non-root collaborator accounts, and HTTPS/TLS on a remotely managed host
-  (including a publicly trusted cert for a bare public IP). Do not use for
+  Operate remote Linux servers through stable SSH aliases: onboard key auth,
+  diagnose and repair SSH/SFTP, run daily ssh/rsync/sftp, add scoped
+  collaborators, deploy via GitHub deploy keys, and set up HTTPS/TLS
+  (including a publicly trusted cert for a bare public IP). Use when connecting
+  to a VPS, fixing Permission denied or SFTP subsystem errors, or doing
+  host-level ops on a remotely managed Linux machine. Do not use for
   Ansible/Terraform fleets, Windows RDP, or cloud-console-only work.
 ---
 
-# SSH Remote Control
+# Remote Server Ops
 
-Alias-first remote Linux access. The only CLI is `scripts/sshctrl.py`. Resolve this skill directory; it is not on `PATH`.
+Alias-first remote Linux operations. The only CLI is `scripts/sshctrl.py`. Resolve this skill directory; it is not on `PATH`.
 
 ```bash
 python <skill-dir>/scripts/sshctrl.py connect <host-or-alias-fragment>

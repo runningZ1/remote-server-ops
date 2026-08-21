@@ -217,5 +217,5 @@ Preferred long-term model:
 Use this prompt when asking another agent to troubleshoot:
 
 ```text
-Use $ssh-remote-control for this SSH/SFTP issue. First resolve the alias with sshctrl connect, then run sshctrl server diagnose. Classify the failure as network, listener, handshake, authentication, or SFTP subsystem before changing anything. If key auth fails, use repair-pubkey. If SSH works but SFTP/Xftp fails, use repair-sftp. Back up sshd_config, run sshd -t, reload/restart SSH, and verify a new SSH/SFTP connection before declaring success.
+Use $remote-server-ops for this SSH/SFTP issue. First resolve the alias with sshctrl connect, then run sshctrl server diagnose. Classify the failure as network, listener, handshake, authentication, or SFTP subsystem before changing anything. If key auth fails, use repair-pubkey. If SSH works but SFTP/Xftp fails, use repair-sftp. Back up sshd_config, run sshd -t, reload/restart SSH, and verify a new SSH/SFTP connection before declaring success.
 ```
