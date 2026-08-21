@@ -12,7 +12,7 @@ description: >-
 
 # SSH Remote Control
 
-Alias-first remote Linux access. The only CLI is `scripts/sshctrl.py`; logic lives in `scripts/sshctrl_lib/`. Resolve this skill directory; it is not on `PATH`.
+Alias-first remote Linux access. The only CLI is `scripts/sshctrl.py`. Resolve this skill directory; it is not on `PATH`.
 
 ```bash
 python <skill-dir>/scripts/sshctrl.py connect <host-or-alias-fragment>
@@ -63,6 +63,6 @@ Diagnose before guessing. `sshd` honors the **first** matching directive; `/etc/
 
 ## Deferred reading
 
-Collaborators → `references/collaborator-accounts.md`. HTTPS → `references/ip-https-deployment.md` before Nginx/Certbot. GitHub deploy-key → `references/github-deploy-guide.md` only when that is the job. Extra ssh/rsync → `references/ssh-commands-reference.md`. Route evals → `evals/trigger_cases.json`. `references/legacy/` is historical.
+After `server add`, accept the host only with `references/onboarding-acceptance.md`. Collaborators → `references/collaborator-accounts.md`. HTTPS → `references/ip-https-deployment.md` before Nginx/Certbot. GitHub deploy-key → `references/github-deploy-guide.md` only when that is the job. Extra ssh/rsync → `references/ssh-commands-reference.md`.
 
-Validate with `python -m py_compile scripts/sshctrl.py`, `python scripts/sshctrl.py --version`, and `python -m unittest discover -s tests -q`.
+Validate with `python -m py_compile scripts/sshctrl.py` and `python scripts/sshctrl.py --version`.

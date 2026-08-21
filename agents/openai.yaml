@@ -1,4 +1,0 @@
-interface:
-  display_name: "SSH Remote Control"
-  short_description: "Alias-first SSH, diagnosis, collaborators, remote HTTPS"
-  default_prompt: "Use $ssh-remote-control to resolve the alias, then operate via native ssh/rsync."

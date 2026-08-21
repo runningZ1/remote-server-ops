@@ -4,7 +4,7 @@ import secrets
 import string
 import sys
 
-from .common import load_servers, resolve_secret_password, run_ssh_command, RELOAD_SSHD
+from sshctrl_common import load_servers, resolve_secret_password, run_ssh_command, RELOAD_SSHD
 
 
 COLLAB_TIERS = {

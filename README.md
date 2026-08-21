@@ -22,7 +22,7 @@ pip install -r requirements.txt
 python scripts/sshctrl.py --version
 ```
 
-The CLI entry is only `scripts/sshctrl.py`. Implementation is split under `scripts/sshctrl_lib/`. Do not add a copy at the skill root.
+The CLI entry is only `scripts/sshctrl.py`. Sibling helpers live next to it as `sshctrl_*.py`. Do not add a copy at the skill root.
 
 ## Security notes
 

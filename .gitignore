@@ -23,3 +23,9 @@ ENV/
 # 临时文件
 *.tmp
 .DS_Store
+
+# 本地技能元数据与测试，不随仓库发布
+agents/
+evals/
+tests/
+manifest.json

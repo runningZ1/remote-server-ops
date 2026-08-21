@@ -4,7 +4,7 @@ import sys
 
 import paramiko
 
-from .common import (
+from sshctrl_common import (
     RELOAD_SSHD,
     _print_command_output,
     _upsert_remote_sshd_config,

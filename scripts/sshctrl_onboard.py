@@ -7,7 +7,7 @@ import time
 
 import paramiko
 
-from .common import (
+from sshctrl_common import (
     load_servers,
     paramiko_client,
     resolve_secret_password,
@@ -15,7 +15,7 @@ from .common import (
     save_servers,
     validate_host,
 )
-from .repair import build_vnc_auth_rescue_script, diagnose_connection_failure
+from sshctrl_repair import build_vnc_auth_rescue_script, diagnose_connection_failure
 
 
 def cmd_server_add(args):
