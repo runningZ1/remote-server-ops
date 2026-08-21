@@ -20,7 +20,7 @@ If any gate fails, report the constraint and offer either a domain, a private CA
 Resolve the SSH alias first, then collect current state. Do not infer free capacity or a safe default TLS server.
 
 ```bash
-python sshctrl.py connect <host>
+python <skill-dir>/scripts/sshctrl.py connect <host>
 ssh <alias> "nproc; free -h; df -h / /opt; ss -ltnp"
 ssh <alias> "docker system df; docker ps --format '{{.Names}}\\t{{.Ports}}'"
 ssh <alias> "nginx -T 2>/dev/null | grep -nE 'listen (80|443)|server_name|ssl_certificate'"

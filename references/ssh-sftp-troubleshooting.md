@@ -59,7 +59,7 @@ Important interpretation:
 Start with the skill helper:
 
 ```bash
-python sshctrl.py server diagnose <alias>
+python <skill-dir>/scripts/sshctrl.py server diagnose <alias>
 ```
 
 Manual local evidence:
@@ -98,14 +98,14 @@ Common log mappings:
 Prefer the scripted repair when an alias exists:
 
 ```bash
-python sshctrl.py server repair-pubkey <alias> <password>
+python <skill-dir>/scripts/sshctrl.py server repair-pubkey <alias> <password>
 ```
 
 Then verify:
 
 ```bash
 ssh -o BatchMode=yes <alias> "whoami && hostname"
-python sshctrl.py server diagnose <alias>
+python <skill-dir>/scripts/sshctrl.py server diagnose <alias>
 ```
 
 Manual checks:
@@ -138,7 +138,7 @@ Treat this as temporary. Switch back to key-only or deploy-user access after rec
 Use the scripted repair when SSH key login works but SFTP/Xftp fails:
 
 ```bash
-python sshctrl.py server repair-sftp <alias>
+python <skill-dir>/scripts/sshctrl.py server repair-sftp <alias>
 ```
 
 The target stable line is:
@@ -205,7 +205,9 @@ Preferred long-term model:
 
 - Do not close the only working SSH/VNC session before testing a new login.
 - Do not assume `sshd_config` text equals effective config; use `sshd -T`.
+- sshd uses the **first** matching directive in the fully included config. A later `PasswordAuthentication yes` does not override an earlier `no`.
 - Do not ignore `/etc/ssh/sshd_config.d/*.conf`; included snippets can override expectations.
+- `repair-pubkey` for root sets `PermitRootLogin prohibit-password`, which blocks root password login even when global `PasswordAuthentication` is still `yes`.
 - Do not use long nested PowerShell plus remote-shell one-liners for fragile repairs; upload a script or use the helper command.
 - Do not treat Xftp/SFTP failures as proof that the password or key is wrong.
 - Do not leave `PermitRootLogin yes` and `PasswordAuthentication yes` exposed longer than needed on public servers.

@@ -1,4 +1,7 @@
-# SSH Remote Control
+# SSH Remote Control (legacy snapshot)
+
+This file is historical. Current contract: `SKILL.md`. The only CLI is `scripts/sshctrl.py` (not the skill root).
+Collaborator access is `server add-collaborator`, not shared root password.
 
 [![GitHub](https://img.shields.io/badge/GitHub-ssh--remote--control-blue?logo=github)](https://github.com/runningZ1/ssh-remote-control)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -299,8 +302,8 @@ ssh-keygen -R <服务器IP>
 ## 参考资料
 
 - `references/ssh-commands-reference.md` - SSH命令完整参考
-- `references/detailed-guide.md` - 详细指南和故障排除
-- `SKILL.md` - 代理操作手册
+- `references/legacy/detailed-guide.md` - 旧版详细指南（含过时脚本名，勿当现行 SOP）
+- `SKILL.md` - 现行代理操作手册
 
 ---
 
