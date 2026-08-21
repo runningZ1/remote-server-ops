@@ -11,7 +11,7 @@ from sshctrl_repair import cmd_server_diagnose, cmd_server_repair_pubkey, cmd_se
 
 def main():
     parser = argparse.ArgumentParser(
-        description="SSH Remote Control - SSH免密连接配置工具",
+        description="Remote Server Ops - SSH 免密连接与远程 Linux 运维工具",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 核心SOP流程（AI agent 调用）:
@@ -142,4 +142,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

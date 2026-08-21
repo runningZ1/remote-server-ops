@@ -110,7 +110,7 @@ def cmd_server_add_collaborator(args):
             sys.exit(1)
 
     print(f"\n{'='*60}")
-    print("SSH Remote Control - 创建受限协作者账号")
+    print("Remote Server Ops - 创建受限协作者账号")
     print(f"{'='*60}")
     print(f"服务器: {host}:{port}  (管理员别名: {alias})")
     print(f"新账号: {cuser}")
@@ -269,4 +269,3 @@ def cmd_server_add_collaborator(args):
     print("\n协作者连接方式（对方在自己机器上执行，不需要你的私钥/别名）:")
     print(f"  ssh {cuser}@{host} -p {port}")
     print("\n注意: 该账号已关闭免密登录（PubkeyAuthentication no），只能用上面的密码登录")
-

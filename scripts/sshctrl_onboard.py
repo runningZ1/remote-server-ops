@@ -41,7 +41,7 @@ def cmd_server_add(args):
         sys.exit(1)
 
     print(f"\n{'='*60}")
-    print("SSH Remote Control - 配置服务器免密连接")
+    print("Remote Server Ops - 配置服务器免密连接")
     print(f"{'='*60}")
     print(f"服务器: {host}:{port}")
     print(f"用户: {username}")

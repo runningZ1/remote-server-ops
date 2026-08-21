@@ -160,7 +160,7 @@ def cmd_server_repair_pubkey(args):
     username = servers[alias].get('username')
 
     print(f"\n{'='*60}")
-    print("SSH Remote Control - 自动修复服务端公钥认证")
+    print("Remote Server Ops - 自动修复服务端公钥认证")
     print(f"{'='*60}")
     print(f"服务器: {host}:{port}")
     print(f"用户: {username}")
@@ -261,7 +261,7 @@ def cmd_server_diagnose(args):
     alias = args.alias
 
     print(f"\n{'='*60}")
-    print("SSH Remote Control - 分层诊断")
+    print("Remote Server Ops - 分层诊断")
     print(f"{'='*60}")
     print(f"别名: {alias}")
     print(f"{'='*60}")
@@ -347,7 +347,7 @@ def cmd_server_repair_sftp(args):
     alias = args.alias
 
     print(f"\n{'='*60}")
-    print("SSH Remote Control - 修复 SFTP subsystem")
+    print("Remote Server Ops - 修复 SFTP subsystem")
     print(f"{'='*60}")
     print(f"别名: {alias}")
     print(f"{'='*60}\n")
