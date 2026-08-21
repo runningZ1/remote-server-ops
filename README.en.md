@@ -36,6 +36,7 @@ Use this project to:
 - diagnose `Permission denied`, host-key changes, handshake failures, or SFTP subsystem errors;
 - create scoped accounts for collaborators without sharing root credentials, admin keys, or an admin alias;
 - deploy a private GitHub repository with a Deploy Key, or configure trusted HTTPS for a bare public IP;
+- bind a deployed site to your own domain when its DNS is hosted on Cloudflare, creating a subdomain and issuing a certificate for it;
 - give an agent a safe workflow that resolves the host and its boundaries before remote execution.
 
 It is not an Ansible/Terraform fleet orchestrator, a Windows RDP tool, or a substitute for cloud-console access where no SSH path exists.
@@ -49,7 +50,7 @@ It is not an Ansible/Terraform fleet orchestrator, a Windows RDP tool, or a subs
 | Layered diagnosis | Separate network, listener, handshake, authentication, and SFTP subsystem failures | `server diagnose` |
 | Targeted repair | Repair public-key auth or SFTP and verify the result | `repair-pubkey`, `repair-sftp` |
 | Least-privilege collaboration | Create individual Linux accounts with role-scoped access | `add-collaborator` |
-| Deployment and HTTPS guidance | Use constrained procedures for Deploy Keys, long jobs, Nginx, and ACME | `references/` |
+| Deployment and HTTPS guidance | Use constrained procedures for Deploy Keys, long jobs, Nginx, ACME, and Cloudflare domain binding | `references/` |
 
 ## Quick start
 
@@ -180,6 +181,7 @@ The agent contract lives in [SKILL.md](SKILL.md): resolve aliases first, diagnos
 | Least-privilege collaborator accounts | [collaborator-accounts.md](references/collaborator-accounts.md) |
 | Deploying a private GitHub repository with Deploy Keys | [github-deploy-guide.md](references/github-deploy-guide.md) |
 | Trusted HTTPS for a bare public IP | [ip-https-deployment.md](references/ip-https-deployment.md) |
+| Cloudflare domain/subdomain binding and certificate issuance (Chinese) | [cloudflare-domain-binding.md](references/cloudflare-domain-binding.md) |
 
 ## Contributing
 

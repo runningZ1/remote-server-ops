@@ -36,6 +36,7 @@
 - 诊断 `Permission denied`、主机密钥变更、握手失败或 SFTP subsystem 启动失败；
 - 在不共享 root 密码、管理员私钥或管理员别名的前提下，为协作者创建受限账号；
 - 通过 GitHub Deploy Key 将私有仓库部署到服务器，或为公网裸 IP 配置可信 HTTPS；
+- 把已部署的站点绑定到自有域名（DNS 托管在 Cloudflare），创建子域名并签发证书；
 - 让 Agent 先解析目标主机和安全边界，再执行远程操作。
 
 不适用于 Ansible/Terraform 机群编排、Windows RDP，或完全没有 SSH 通道的云控制台操作。
@@ -49,7 +50,7 @@
 | 分层诊断 | 区分网络、监听、握手、认证与 SFTP 子系统问题 | `server diagnose` |
 | 定向修复 | 修复公钥认证或 SFTP，不把“能连上”误当“已修好” | `repair-pubkey`、`repair-sftp` |
 | 协作者最小权限 | 按角色创建独立 Linux 账号，不共享管理员访问权 | `add-collaborator` |
-| 部署与 HTTPS 指南 | 为 Deploy Key、长任务、Nginx/ACME 提供经过约束的流程 | `references/` |
+| 部署与 HTTPS 指南 | 为 Deploy Key、长任务、Nginx/ACME、Cloudflare 域名绑定提供经过约束的流程 | `references/` |
 
 ## 3 分钟快速开始
 
@@ -180,6 +181,7 @@ Use $remote-server-ops to resolve the alias before operating on a remote Linux s
 | 最小权限协作者账号 | [collaborator-accounts.md](references/collaborator-accounts.md) |
 | GitHub 私有仓库 Deploy Key 部署 | [github-deploy-guide.md](references/github-deploy-guide.md) |
 | 公网裸 IP 的可信 HTTPS | [ip-https-deployment.md](references/ip-https-deployment.md) |
+| Cloudflare 域名/子域名绑定与证书签发 | [cloudflare-domain-binding.md](references/cloudflare-domain-binding.md) |
 
 ## 参与贡献
 

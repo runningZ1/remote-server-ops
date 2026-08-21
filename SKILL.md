@@ -4,10 +4,12 @@ description: >-
   Operate remote Linux servers through stable SSH aliases: onboard key auth,
   diagnose and repair SSH/SFTP, run daily ssh/rsync/sftp, add scoped
   collaborators, deploy via GitHub deploy keys, and set up HTTPS/TLS
-  (including a publicly trusted cert for a bare public IP). Use when connecting
-  to a VPS, fixing Permission denied or SFTP subsystem errors, or doing
-  host-level ops on a remotely managed Linux machine. Do not use for
-  Ansible/Terraform fleets, Windows RDP, or cloud-console-only work.
+  (including a publicly trusted cert for a bare public IP, or a proper
+  subdomain bound through Cloudflare DNS). Use when connecting to a VPS,
+  fixing Permission denied or SFTP subsystem errors, binding a Cloudflare
+  domain/subdomain to a deployed site, or doing host-level ops on a remotely
+  managed Linux machine. Do not use for Ansible/Terraform fleets, Windows
+  RDP, or cloud-console-only work.
 ---
 
 # Remote Server Ops
@@ -63,6 +65,6 @@ Diagnose before guessing. `sshd` honors the **first** matching directive; `/etc/
 
 ## Deferred reading
 
-After `server add`, accept the host only with `references/onboarding-acceptance.md`. Collaborators → `references/collaborator-accounts.md`. HTTPS → `references/ip-https-deployment.md` before Nginx/Certbot. GitHub deploy-key → `references/github-deploy-guide.md` only when that is the job. Extra ssh/rsync → `references/ssh-commands-reference.md`.
+After `server add`, accept the host only with `references/onboarding-acceptance.md`. Collaborators → `references/collaborator-accounts.md`. HTTPS on a bare public IP (no domain) → `references/ip-https-deployment.md` before Nginx/Certbot. Domain DNS-managed on Cloudflare → `references/cloudflare-domain-binding.md` before touching Nginx/Certbot (DNS record creation is a write op; route the Cloudflare MCP call through the `mcp-executor` subagent, never inline). GitHub deploy-key → `references/github-deploy-guide.md` only when that is the job. Extra ssh/rsync → `references/ssh-commands-reference.md`.
 
 Validate with `python -m py_compile scripts/sshctrl.py` and `python scripts/sshctrl.py --version`.
