@@ -1,33 +1,35 @@
 # SSH Remote Control
 
-Agent skill + local CLI for **alias-first** SSH to Linux servers: key onboarding, layered diagnosis, pubkey/SFTP repair, scoped collaborator accounts, and (when requested) public-IP HTTPS.
+[中文](README.md) · [English](README.en.md)
 
-Daily work after onboarding is native OpenSSH:
+面向 Agent 的 **别名优先** Linux SSH 技能：密钥接入、分层诊断、公钥/SFTP 修复、受限协作者账号，以及按需做公网 IP 的 HTTPS。
+
+接入完成后，日常只用原生 OpenSSH：
 
 ```bash
 python scripts/sshctrl.py connect <host-or-alias>
 ssh <alias> "whoami && hostname"
 ```
 
-## Not this skill
+## 不覆盖
 
-- Ansible / Terraform / fleet provisioning
-- Windows RDP
-- Cloud-console-only access with no SSH path
+- Ansible / Terraform / 机群编排
+- Windows 远程桌面
+- 只有云控制台、没有 SSH 路径的场景
 
-## Install
+## 安装
 
 ```bash
 pip install -r requirements.txt
 python scripts/sshctrl.py --version
 ```
 
-The CLI entry is only `scripts/sshctrl.py`. Sibling helpers live next to it as `sshctrl_*.py`. Do not add a copy at the skill root.
+CLI 入口只有 `scripts/sshctrl.py`，同目录下的 `sshctrl_*.py` 是拆开的辅助脚本。不要在技能根目录再放一份。
 
-## Security notes
+## 安全说明
 
-- Prefer `SSHCTRL_PASSWORD` with `-` as the password argument instead of putting the password on the command line.
-- `repair-pubkey` for root sets `PermitRootLogin prohibit-password`.
-- Host-key policy warns on unknown hosts instead of silently auto-adding.
+- `server add` / `repair-pubkey` 的密码参数可用 `-`，从环境变量 `SSHCTRL_PASSWORD` 读取，避免出现在命令行。
+- 对 root 执行 `repair-pubkey` 会把 `PermitRootLogin` 设为 `prohibit-password`。
+- 未知主机密钥会告警，不再静默自动加入。
 
-See `SKILL.md` for the agent contract.
+Agent 契约见 `SKILL.md`。
